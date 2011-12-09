@@ -1,33 +1,20 @@
 '''
 kickball - an unoffical API for kickstarter
 
-string project[name]
-string project[author]
-string project[author][url]
-string project[url]
-boolean project[funded]
-datetime project[date_funded] # todo for just projects
-int project[num_backers]
-array project[backers]
-project[backers][0][name],[url]
-int project[pledged]
-array project[updates]
-array project[comments]
-
 todo: 
-add in updates
 add in people browsing
 '''
 from BeautifulSoup import BeautifulSoup
 import urllib
 from datetime import datetime
 import re
+from xml.dom.minidom import parseString
 
 class KickBall:
 	def __init__(self, urlBase='http://www.kickstarter.com', silent=False):
 		self.urlBase = urlBase
 		self.silent = silent
-		self.categories = ['art', 'comics', 'dance', 'design', 
+		self.categoryTypes = ['art', 'comics', 'dance', 'design', 
 			'fashion', 'film%20&%20video', 'food', 'games', 
 			'music', 'photography', 'publishing', 'technology', 
 			'theater', 'all']
@@ -36,12 +23,28 @@ class KickBall:
 		self.scrapeTypes = ['default', 'detailed', 'updates', 'backers', 
 			'comments', 'all']
 	
-	#def updates(self, url):
+	def updates(self, url):
 		# check rss feed
+		sock = urllib.urlopen(url)
+		soup = BeautifulSoup(sock)
+			
+		updates = []
+		entries = soup.findAll('entry')
+		for entry in entries:
+			update = {}
+			update['content'] = entry.find('content').contents[0]
+			update['publish_date'] = entry.find('published').contents[0]
+			update['url'] = entry.find('link')["href"]
+			update['title'] = entry.find('title').contents[0]
+			updates.append(update)
+		return updates, len(entries)
 	
-	def comments(self, sock):
+	def comments(self, url):
+		sock = urllib.urlopen(url)
+		soup = BeautifulSoup(sock)
+			
 		commentsProject = []
-		comments = sock.findAll('li', {'class':re.compile(r'\comment\b')})
+		comments = soup.findAll('li', {'class':re.compile(r'\comment\b')})
 		for comment in comments:
 			commentDict = {}
 			main = comment.find('div', {'class':'main'})
@@ -52,9 +55,12 @@ class KickBall:
 			commentsProject.append(commentDict)
 		return commentsProject, len(comments)	
 			
-	def backers(self, sock):
+	def backers(self, url):
+		sock = urllib.urlopen(url)
+		soup = BeautifulSoup(sock)
+			
 		backersProject = []
-		backers = sock.findAll('div', {'class':'NS-backers-backing-row'})
+		backers = soup.findAll('div', {'class':'NS-backers-backing-row'})
 		for backer in backers:
 			backerDict = {}
 			meta = backer.find('div', {'class':'meta'})
@@ -64,12 +70,18 @@ class KickBall:
 			backersProject.append(backerDict)
 		return backersProject, len(backers)	
 			
-	def detailed(self, sock):
-		name = sock.find('h1', {'id':'name'}).find('a').contents[0]
-		author = sock.find('a', {'id':'byline'}).contents[0]
-		moneyHeader = sock.find('div', {'id':'moneyraised'}).findAll('div', {'class':'num'})
+	def detailed(self, url):
+		sock = urllib.urlopen(url)
+		soup = BeautifulSoup(sock)
+		
+		name = soup.find('h1', {'id':'name'}).find('a').contents[0]
+		author = soup.find('a', {'id':'byline'}).contents[0]
+		author_url = soup.find('a', {'id':'byline'})['href']
+		moneyHeader = soup.find('div', {'id':'moneyraised'}).findAll('div', {'class':'num'})
 		detailedProject = {}
-		detailedProject['author'] = author
+		detailedProject['author'] = {}
+		detailedProject['author']['name'] = author
+		detailedProject['author']['url'] = author_url
 		detailedProject['num_backers'] = moneyHeader[0].contents[0]
 		detailedProject['pledged'] = moneyHeader[1].contents[0]
 		detailedProject['daysLeft'] = moneyHeader[2].contents[0]
@@ -78,40 +90,51 @@ class KickBall:
 	def project(self, url, scrapeType="all", project={}):
 		if not self.silent:
 			print "scraping project", url, 'at', datetime.utcnow()
+		
+		#make sure url follows convention /projects/<somenumber>/
+		
+		if scrapeType.lower() not in self.scrapeTypes:
+			raise Exception('Scrape type is not one of '+str(self.scrapeTypes))
+			
 		url = self.urlBase + url
 		project['url'] = url
 		
-		#if scrapeType.lower() in ['updates', 'all']:
-		#	self.updates(url+'/posts.atom')
-		
 		if scrapeType.lower() in ['detailed', 'all']:
-			sock = urllib.urlopen(url)
-			soup = BeautifulSoup(sock)
-			detailedProject = self.detailed(soup)
+			detailedProject = self.detailed(url)
 			project.update(detailedProject)	
-				
+		
+		if scrapeType.lower() in ['updates', 'all']:
+			updatesProject, num_updates = self.updates(url+'/posts.atom')
+			project['updates'] = updatesProject
+			project['num_updates'] = num_updates
+					
 		if scrapeType.lower() in ['comments', 'all']:
-			sock = urllib.urlopen(url+'/comments')
-			soup = BeautifulSoup(sock)
-			commentsProject, num_comments = self.comments(soup)
+			commentsProject, num_comments = self.comments(url+'/comments')
 			project['comments'] = commentsProject
 			project['num_comments'] = num_comments
 			
 		if scrapeType.lower() in ['backers', 'all']:
-			sock = urllib.urlopen(url+'/backers')
-			soup = BeautifulSoup(sock)
-			backersProject, num_backers = self.backers(soup)
+			backersProject, num_backers = self.backers(url+'/backers')
 			project['backers'] = backersProject
 			project['num_backers'] = num_backers
+		
 		print project
 		return project
 
-	def category(self, projectType, categoryType, scrapeType="all", maxPages=100):
+	def category(self, categoryType, projectType, scrapeType="all", maxPages=100):
 		if not self.silent:
 			print "scraping category", projectType, 'with option', categoryType, 'at', datetime.utcnow()
-			
+		
+		# make sure project type is valid
+		if categoryType.lower() not in self.categoryTypes:
+			raise Exception('Category type is not one of '+str(self.categoryTypes))
+		if projectType.lower() not in self.projectTypes:
+			raise Exception('Project type is not one of '+str(self.projectTypes))
+		if scrapeType.lower() not in self.scrapeTypes:
+			raise Exception('Scrape type is not one of '+str(self.scrapeTypes))
+				
 		# put together url
-		url = self.urlBase+'/discover/categories/'+projectType+'/'+categoryType+'?page='
+		url = self.urlBase+'/discover/categories/'+categoryType+'/'+projectType+'?page='
 		for i in range(1, maxPages):
 			print url+str(i)
 			sock = urllib.urlopen(url+str(i))
@@ -126,7 +149,7 @@ class KickBall:
 				if scrapeType.lower() in ['default', 'all']:
 					# grab as much as we can from the default pages
 					projectDict['name'] = project.findAll('a')[1].contents[0]
-					#projectDict['author'] = #eh, i'll add this in eventually. for now use detailed settings
+					projectDict['author'] = project.find('span').contents[0].rpartition('by')[2].strip()
 					projectDict['successful'] = True if project.find('div', {'class':'project-pledged-successful'}) else False
 					stats = project.find('ul', {'class':'project-stats'})
 					projectDict['funding_percent'] = stats.findAll('li')[0].find('strong').contents[0]
@@ -146,6 +169,6 @@ class KickBall:
 		
 		return projectsRes
 	
-#k = KickBall()
-#k.category('dance', 'recommended', 'all')
-#k.project('/projects/joshharker/crania-anatomica-filigre-me-to-you')
+k = KickBall()
+#k.category('art', 'recommended', 'all')
+k.project('/projects/1264285084/swoon-iv-the-techno-logy-issue')
