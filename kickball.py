@@ -1,5 +1,5 @@
 '''
-kickball - an unoffical API for kickstarter
+kickball - kickstarter scraper
 
 todo: 
 add in people browsing
@@ -132,7 +132,7 @@ class KickBall:
 			raise Exception('Project type is not one of '+str(self.projectTypes))
 		if scrapeType.lower() not in self.scrapeTypes:
 			raise Exception('Scrape type is not one of '+str(self.scrapeTypes))
-				
+		
 		# put together url
 		url = self.urlBase+'/discover/categories/'+categoryType+'/'+projectType+'?page='
 		for i in range(1, maxPages):
@@ -148,6 +148,8 @@ class KickBall:
 				projectDict = {}	
 				if scrapeType.lower() in ['default', 'all']:
 					# grab as much as we can from the default pages
+					projectDict['category'] = categoryType
+					projectDict['projectType'] = projectType
 					projectDict['name'] = project.findAll('a')[1].contents[0]
 					projectDict['author'] = project.find('span').contents[0].rpartition('by')[2].strip()
 					projectDict['successful'] = True if project.find('div', {'class':'project-pledged-successful'}) else False
@@ -169,6 +171,6 @@ class KickBall:
 		
 		return projectsRes
 	
-k = KickBall()
+#k = KickBall()
 #k.category('art', 'recommended', 'all')
-k.project('/projects/1264285084/swoon-iv-the-techno-logy-issue')
+#k.project('/projects/1264285084/swoon-iv-the-techno-logy-issue')

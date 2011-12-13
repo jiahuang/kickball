@@ -1,4 +1,4 @@
-# Kickball is an unofficial Kickstarter python API
+# Kickball scrapes Kickstarter for project information
 
 Kickball allows for the following scrapes:
 
@@ -14,12 +14,8 @@ Scrape by project:
 By default kickball scrapes for "all" regarding a project. p is a dictionary with the following:
 
 	p['url']
-	p['author']['name']
-	p['author']['url']
-	p['pledged']
-	p['num_backers']
-	p['backers']
-	p['backers'][#]['url']
+	p['successful']
+	p['author']['name'][#]['url']
 	p['backers'][#]['date']
 	p['backers'][#]['name']
 	p['num_comments']
